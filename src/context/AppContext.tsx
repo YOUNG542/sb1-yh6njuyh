@@ -17,7 +17,9 @@ interface AppContextType {
   messages: Message[];
   leaveChat: () => Promise<void>;
   reportUser: (reason: string) => Promise<void>;
-  rejectMatch: () => Promise<void>; 
+  rejectMatch: () => Promise<void>;
+  rejectedUserIds: string[];
+  addRejectedUser: (id: string) => void; 
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -35,7 +37,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [matchStatus, setMatchStatus] = useState<'idle' | 'searching' | 'found' | 'chatting'>('idle');
   const [currentMatch, setCurrentMatch] = useState<Match | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [rejectedUserIds, setRejectedUserIds] = useState<string[]>([]);
 
+
+  const addRejectedUser = (userId: string) => {
+    setRejectedUserIds((prev) => [...prev, userId]);
+  };
+  
   // Set nickname and store in localStorage
   const setNickname = (name: string) => {
     setNicknameState(name);
@@ -119,29 +127,35 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const handleMatchmaking = async (snapshot: any) => {
       const requests = snapshot.val();
       if (!requests) return;
-  
+    
       const requestList = Object.values<MatchRequest>(requests);
-      if (requestList.length < 2) return;
-  
-      const [req1, req2] = requestList;
-  
+    
+      // 이 사용자가 거절한 대상 제외
+      const filtered = requestList.filter((req) => req.userId !== userId && !rejectedUserIds.includes(req.userId));
+      const me = requestList.find((req) => req.userId === userId);
+    
+      if (!me || filtered.length === 0) return;
+    
+      const target = filtered[0];
+    
       const matchId = uuidv4();
       const newMatch: Match = {
         id: matchId,
-        users: [req1.userId, req2.userId],
+        users: [me.userId, target.userId],
         userNicknames: {
-          [req1.userId]: req1.nickname,
-          [req2.userId]: req2.nickname
+          [me.userId]: me.nickname,
+          [target.userId]: target.nickname
         },
         acceptedBy: [],
         status: 'pending',
         createdAt: Date.now()
       };
-  
+    
       await set(ref(database, `matches/${matchId}`), newMatch);
-      await remove(ref(database, `matchRequests/${req1.userId}`));
-      await remove(ref(database, `matchRequests/${req2.userId}`));
+      await remove(ref(database, `matchRequests/${me.userId}`));
+      await remove(ref(database, `matchRequests/${target.userId}`));
     };
+    
   
     const unsubscribe = onValue(matchRequestsRef, (snapshot) => {
       // ✅ 비동기 로직은 따로 호출
@@ -311,26 +325,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const rejectMatch = async () => {
     if (!currentMatch) return;
   
-    // 매칭을 삭제함
+    const otherUserId = currentMatch.users.find(id => id !== userId);
+    if (otherUserId) addRejectedUser(otherUserId); // ❗ 거절한 사람 기억
+  
+    // 매칭을 종료함
     const matchRef = ref(database, `matches/${currentMatch.id}`);
     await set(matchRef, {
       ...currentMatch,
       status: 'ended'
     });
   
-    // 사용자 상태 업데이트
-    const userRef = ref(database, `users/${userId}`);
-    await set(userRef, {
-      id: userId,
-      nickname,
-      lastActive: Date.now(),
-      status: 'online'
-    });
-  
     setCurrentMatch(null);
     setMatchStatus('idle');
     setMessages([]);
+  
+    // 매칭 상태로 되돌아가기
+    await enterMatchmaking();
   };
+  
   
 
   return (
@@ -348,7 +360,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         messages,
         leaveChat,
         reportUser,
-        rejectMatch
+        rejectMatch,
+        rejectedUserIds,
+        addRejectedUser,
       }}
     >
       {children}
