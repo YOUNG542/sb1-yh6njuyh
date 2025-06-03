@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { ref, onValue, set, get, remove, onDisconnect } from 'firebase/database';
 import { database } from '../firebase/config';
@@ -38,7 +38,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [currentMatch, setCurrentMatch] = useState<Match | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [rejectedUserIds, setRejectedUserIds] = useState<string[]>([]);
+  const rejectedUserIdsRef = useRef<string[]>([]);
 
+  useEffect(() => {
+    rejectedUserIdsRef.current = rejectedUserIds;
+  }, [rejectedUserIds]);
 
 
   const addRejectedUser = (userId: string) => {
@@ -132,7 +136,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const requestList = Object.values<MatchRequest>(requests);
     
       // ✅ 거절한 유저 제외
-      const filteredRequests = requestList.filter(req => !rejectedUserIds.includes(req.userId));
+      const filteredRequests = requestList.filter(
+        req => !rejectedUserIdsRef.current.includes(req.userId)
+      );
+      
       if (filteredRequests.length < 2) return;
     
       const [req1, req2] = filteredRequests;
