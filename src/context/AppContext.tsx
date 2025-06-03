@@ -326,9 +326,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!currentMatch) return;
   
     const otherUserId = currentMatch.users.find(id => id !== userId);
-    if (otherUserId) addRejectedUser(otherUserId); // ❗ 거절한 사람 기억
+    
+    if (otherUserId) {
+      addRejectedUser(otherUserId); // 먼저 상태 업데이트 요청
+      await new Promise((resolve) => setTimeout(resolve, 100)); // 상태 반영 기다림
+    }
   
-    // 매칭을 종료함
+    // 매칭 종료
     const matchRef = ref(database, `matches/${currentMatch.id}`);
     await set(matchRef, {
       ...currentMatch,
@@ -339,9 +343,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setMatchStatus('idle');
     setMessages([]);
   
-    // 매칭 상태로 되돌아가기
-    await enterMatchmaking();
+    await enterMatchmaking(); // 🔥 상태 반영 이후 매칭 시작
   };
+  
   
   
 
