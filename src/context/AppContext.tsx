@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { ref, onValue, set, get, remove, onDisconnect } from 'firebase/database';
 import { database } from '../firebase/config';
-import { User, MatchRequest, Match, Message } from '../types';
+import { User, MatchRequest, Match, Message, Report } from '../types';
 
 interface AppContextType {
   userId: string;
@@ -112,6 +112,44 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [currentMatch]);
 
+  useEffect(() => {
+    const matchRequestsRef = ref(database, 'matchRequests');
+  
+    const handleMatchmaking = async (snapshot: any) => {
+      const requests = snapshot.val();
+      if (!requests) return;
+  
+      const requestList = Object.values<MatchRequest>(requests);
+      if (requestList.length < 2) return;
+  
+      const [req1, req2] = requestList;
+  
+      const matchId = uuidv4();
+      const newMatch: Match = {
+        id: matchId,
+        users: [req1.userId, req2.userId],
+        userNicknames: {
+          [req1.userId]: req1.nickname,
+          [req2.userId]: req2.nickname
+        },
+        acceptedBy: [],
+        status: 'pending',
+        createdAt: Date.now()
+      };
+  
+      await set(ref(database, `matches/${matchId}`), newMatch);
+      await remove(ref(database, `matchRequests/${req1.userId}`));
+      await remove(ref(database, `matchRequests/${req2.userId}`));
+    };
+  
+    const unsubscribe = onValue(matchRequestsRef, (snapshot) => {
+      // ✅ 비동기 로직은 따로 호출
+      handleMatchmaking(snapshot).catch(console.error);
+    });
+  
+    return () => unsubscribe();
+  }, []);
+  
   // Enter matchmaking queue
   const enterMatchmaking = async () => {
     if (!nickname) return;
