@@ -209,19 +209,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     
     const match = snapshot.val() as Match;
     
-    // Add user to accepted list
-    if (!match.acceptedBy.includes(userId)) {
-      const updatedAcceptedBy = [...match.acceptedBy, userId];
-      
-      // If both users accepted
+    const acceptedBy = Array.isArray(match.acceptedBy) ? match.acceptedBy : [];
+
+    if (!acceptedBy.includes(userId)) {
+      const updatedAcceptedBy = [...acceptedBy, userId];
+  
       if (updatedAcceptedBy.length === 2) {
         await set(matchRef, {
           ...match,
           acceptedBy: updatedAcceptedBy,
           status: 'active'
         });
-        
-        // Update users' status
+  
         for (const uid of match.users) {
           const userRef = ref(database, `users/${uid}`);
           await set(userRef, {
