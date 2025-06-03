@@ -40,6 +40,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [rejectedUserIds, setRejectedUserIds] = useState<string[]>([]);
 
 
+
   const addRejectedUser = (userId: string) => {
     setRejectedUserIds((prev) => [...prev, userId]);
   };
@@ -130,21 +131,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     
       const requestList = Object.values<MatchRequest>(requests);
     
-      // 이 사용자가 거절한 대상 제외
-      const filtered = requestList.filter((req) => req.userId !== userId && !rejectedUserIds.includes(req.userId));
-      const me = requestList.find((req) => req.userId === userId);
+      // ✅ 거절한 유저 제외
+      const filteredRequests = requestList.filter(req => !rejectedUserIds.includes(req.userId));
+      if (filteredRequests.length < 2) return;
     
-      if (!me || filtered.length === 0) return;
-    
-      const target = filtered[0];
+      const [req1, req2] = filteredRequests;
     
       const matchId = uuidv4();
       const newMatch: Match = {
         id: matchId,
-        users: [me.userId, target.userId],
+        users: [req1.userId, req2.userId],
         userNicknames: {
-          [me.userId]: me.nickname,
-          [target.userId]: target.nickname
+          [req1.userId]: req1.nickname,
+          [req2.userId]: req2.nickname
         },
         acceptedBy: [],
         status: 'pending',
@@ -152,9 +151,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     
       await set(ref(database, `matches/${matchId}`), newMatch);
-      await remove(ref(database, `matchRequests/${me.userId}`));
-      await remove(ref(database, `matchRequests/${target.userId}`));
+      await remove(ref(database, `matchRequests/${req1.userId}`));
+      await remove(ref(database, `matchRequests/${req2.userId}`));
     };
+    
     
   
     const unsubscribe = onValue(matchRequestsRef, (snapshot) => {
