@@ -17,6 +17,7 @@ interface AppContextType {
   messages: Message[];
   leaveChat: () => Promise<void>;
   reportUser: (reason: string) => Promise<void>;
+  rejectMatch: () => Promise<void>; 
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -307,6 +308,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await set(reportRef, report);
   };
 
+  const rejectMatch = async () => {
+    if (!currentMatch) return;
+  
+    // 매칭을 삭제함
+    const matchRef = ref(database, `matches/${currentMatch.id}`);
+    await set(matchRef, {
+      ...currentMatch,
+      status: 'ended'
+    });
+  
+    // 사용자 상태 업데이트
+    const userRef = ref(database, `users/${userId}`);
+    await set(userRef, {
+      id: userId,
+      nickname,
+      lastActive: Date.now(),
+      status: 'online'
+    });
+  
+    setCurrentMatch(null);
+    setMatchStatus('idle');
+    setMessages([]);
+  };
+  
+
   return (
     <AppContext.Provider
       value={{
@@ -321,13 +347,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         sendMessage,
         messages,
         leaveChat,
-        reportUser
+        reportUser,
+        rejectMatch
       }}
     >
       {children}
     </AppContext.Provider>
   );
 };
+
+
 
 export const useApp = () => {
   const context = useContext(AppContext);

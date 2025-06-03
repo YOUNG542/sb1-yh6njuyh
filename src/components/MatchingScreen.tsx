@@ -4,9 +4,18 @@ import { useApp } from '../context/AppContext';
 import { Heart, Loader2 } from 'lucide-react';
 
 export const MatchingScreen: React.FC = () => {
-  const { matchStatus, enterMatchmaking, exitMatchmaking, currentMatch, acceptMatch } = useApp();
+  const { matchStatus, enterMatchmaking, exitMatchmaking, currentMatch, acceptMatch, rejectMatch } = useApp();
   const [searching, setSearching] = useState(false);
   const [searchTime, setSearchTime] = useState(0);
+  const handleRejectMatch = async () => {
+    try {
+      await rejectMatch();
+    } catch (err) {
+      console.error('❌ 매칭 거절 중 오류:', err);
+    }
+  };
+
+
 
   useEffect(() => {
     let interval: number | undefined;
@@ -74,9 +83,10 @@ export const MatchingScreen: React.FC = () => {
             <Button variant="primary" size="lg" fullWidth onClick={handleAcceptMatch}>
               수락하기
             </Button>
-            <Button variant="outline" size="lg" fullWidth onClick={handleCancelMatching}>
+            <Button variant="outline" size="lg" fullWidth onClick={handleRejectMatch}>
               거절하기
             </Button>
+
           </div>
         )}
       </div>
