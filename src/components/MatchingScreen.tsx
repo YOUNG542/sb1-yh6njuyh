@@ -47,7 +47,7 @@ export const MatchingScreen: React.FC = () => {
   if (matchStatus === 'found' && currentMatch) {
     const otherUserId = currentMatch.users.find(id => id !== useApp().userId);
     const otherUserNickname = otherUserId ? currentMatch.userNicknames[otherUserId] : '';
-    const hasAccepted = currentMatch.acceptedBy.includes(useApp().userId);
+    const hasAccepted = Array.isArray(currentMatch.acceptedBy) && currentMatch.acceptedBy.includes(useApp().userId);
 
     return (
       <div className="max-w-md mx-auto bg-white p-6 rounded-xl shadow-soft text-center">
