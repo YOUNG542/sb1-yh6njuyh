@@ -10,13 +10,32 @@ function App() {
   const { nickname, matchStatus } = useApp();
   const [isInstallPromptShown, setIsInstallPromptShown] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [blockInAppBrowser, setBlockInAppBrowser] = useState(false);
 
-  // PWA 설치 프롬프트 처리
+  // iOS 및 인앱 브라우저 여부 감지
+  const isIos = /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase());
+  const isInAppBrowser = () => {
+    const ua = navigator.userAgent.toLowerCase();
+    return (
+      ua.includes('kakaotalk') ||
+      ua.includes('instagram') ||
+      ua.includes('fbav') ||
+      ua.includes('line') ||
+      ua.includes('naver')
+    );
+  };
+  const isInStandaloneMode =
+    'standalone' in window.navigator && (window.navigator as any).standalone;
+
+  // 설치 프롬프트 및 인앱 차단 로직
   useEffect(() => {
-    // 서비스 워커 등록
     registerServiceWorker();
 
-    // 설치 프롬프트 이벤트 처리
+    if (isIos && isInAppBrowser()) {
+      setBlockInAppBrowser(true);
+      return;
+    }
+
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -47,7 +66,6 @@ function App() {
     setIsInstallPromptShown(false);
   };
 
-  // 현재 상태에 따라 렌더링할 콘텐츠 선택
   const renderContent = () => {
     if (!nickname) {
       return <NicknameForm />;
@@ -60,8 +78,39 @@ function App() {
     return <MatchingScreen />;
   };
 
+  // 인앱 브라우저 차단 화면
+  if (blockInAppBrowser) {
+    return (
+      <div className="fixed inset-0 bg-white flex flex-col items-center justify-center text-center p-6 z-50">
+        <h1 className="text-lg font-semibold mb-2">Safari에서 열어주세요</h1>
+        <p className="text-sm mb-4">
+          이 앱은 아이폰 Safari에서만 작동합니다. <br />
+          오른쪽 위 […] 또는 하단 ⬆️ 버튼을 눌러 <br />
+          <strong>"Safari로 열기"</strong>를 선택해주세요.
+        </p>
+        <button
+          onClick={() => window.open(window.location.href, '_blank')}
+          className="bg-blue-600 text-white px-4 py-2 rounded shadow-md text-sm"
+        >
+          Safari로 열기
+        </button>
+      </div>
+    );
+  }
+
   return (
     <Layout>
+      {/* iOS 홈 화면 추가 안내 */}
+      {isIos && !isInStandaloneMode && (
+        <div className="mb-4 bg-yellow-100 border border-yellow-300 p-3 rounded-lg text-sm text-center">
+          <p className="text-yellow-900">
+            홈 화면에 추가하려면 Safari 하단의 <strong>공유 버튼</strong>을 누른 뒤{' '}
+            <strong>"홈 화면에 추가"</strong>를 선택하세요.
+          </p>
+        </div>
+      )}
+
+      {/* Android에서 설치 프롬프트 */}
       {isInstallPromptShown && (
         <div className="mb-4 bg-secondary-50 p-3 rounded-lg border border-secondary-200 flex justify-between items-center">
           <p className="text-secondary-800 text-sm">
