@@ -12,6 +12,11 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
+// Validate required Firebase configuration
+if (!firebaseConfig.databaseURL || firebaseConfig.databaseURL === 'your-database-url') {
+  throw new Error('Firebase database URL is not configured. Please set VITE_FIREBASE_DATABASE_URL in your .env file with a valid Firebase Realtime Database URL (https://<YOUR_PROJECT_ID>.firebaseio.com)');
+}
+
 const app = initializeApp(firebaseConfig);
 export const database = getDatabase(app);
-export const auth = getAuth(app); 
+export const auth = getAuth(app);
