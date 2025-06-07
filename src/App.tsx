@@ -12,8 +12,9 @@ function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [blockInAppBrowser, setBlockInAppBrowser] = useState(false);
 
-  // iOS 및 인앱 브라우저 여부 감지
+  // 플랫폼 및 브라우저 감지
   const isIos = /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase());
+  const isAndroid = /android/.test(navigator.userAgent.toLowerCase());
   const isInAppBrowser = () => {
     const ua = navigator.userAgent.toLowerCase();
     return (
@@ -31,7 +32,7 @@ function App() {
   useEffect(() => {
     registerServiceWorker();
 
-    if (isIos && isInAppBrowser()) {
+    if ((isIos || isAndroid) && isInAppBrowser()) {
       setBlockInAppBrowser(true);
       return;
     }
@@ -78,15 +79,25 @@ function App() {
     return <MatchingScreen />;
   };
 
-  // 인앱 브라우저 차단 화면 (방법 1 - 버튼 제거)
+  // 인앱 브라우저 차단 화면 (iOS & Android 공통 안내)
   if (blockInAppBrowser) {
     return (
       <div className="fixed inset-0 bg-white flex flex-col items-center justify-center text-center p-6 z-50">
-        <h1 className="text-lg font-semibold mb-3">Safari에서 열어주세요</h1>
+        <h1 className="text-lg font-semibold mb-3">브라우저에서 열어주세요</h1>
         <p className="text-sm leading-relaxed text-gray-700">
-          이 앱은 아이폰 Safari에서만 작동합니다. <br />
-          오른쪽 위의 <strong>[ ⋮ ]</strong> 또는 하단의 <strong>[ ⬆️ ]</strong> 버튼을 눌러<br />
-          <strong>“Safari에서 열기”</strong> 또는 <strong>“기타 브라우저로 열기”</strong>를 선택해주세요.
+          현재 카카오톡 등 인앱 브라우저에서는<br />
+          설치 및 일부 기능이 작동하지 않아요. <br /><br />
+          {isIos ? (
+            <>
+              <strong>오른쪽 위 [ ⋮ ] 또는 하단 ⬆️ 버튼</strong>을 눌러 <br />
+              <strong>“Safari에서 열기”</strong>를 선택해주세요.
+            </>
+          ) : (
+            <>
+              <strong>오른쪽 위 [ ⋮ ] 버튼</strong>을 눌러 <br />
+              <strong>“Chrome에서 열기”</strong> 또는 <strong>“다른 브라우저로 열기”</strong>를 선택해주세요.
+            </>
+          )}
         </p>
       </div>
     );
