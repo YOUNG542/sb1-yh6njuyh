@@ -161,22 +161,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const allRejections = rejectionsSnap.exists() ? rejectionsSnap.val() : {};
 
 
-      // ✅ 거절한 유저 제외
-      const filteredRequests = requestList.filter(req => {
-        if (req.userId === userId) return false;
-      
-        const now = Date.now();
-      
-        const rejectedByMe = allRejections[userId]?.[req.userId];
-        const rejectedByThem = allRejections[req.userId]?.[userId];
-      
-        if ((rejectedByMe && now - rejectedByMe < 60000) ||
-            (rejectedByThem && now - rejectedByThem < 60000)) {
-          return false;
-        }
-      
-        return true;
-      });
+     // ✅ 거절한 유저 제외
+const filteredRequests = requestList.filter(req => {
+  if (req.userId === userId) return false;
+
+  const now = Date.now();
+  const rejectedByMe = allRejections[userId]?.[req.userId];
+
+  if (rejectedByMe && now - rejectedByMe < 60000) {
+    return false;
+  }
+
+  return true;
+});
+
       
       
       
