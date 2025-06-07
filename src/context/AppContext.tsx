@@ -3,6 +3,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { ref, onValue, set, get, remove, onDisconnect } from 'firebase/database';
 import { database } from '../firebase/config';
 import { User, MatchRequest, Match, Message, Report } from '../types';
+import { auth } from '../firebase/config';
+import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+
 
 interface AppContextType {
   userId: string;
@@ -26,14 +29,26 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [userId] = useState<string>(() => {
-    const storedId = localStorage.getItem('userId');
-    if (storedId) return storedId;
-    const newId = uuidv4();
-    localStorage.setItem('userId', newId);
-    return newId;
-  });
+  const [firebaseUserId, setFirebaseUserId] = useState<string | null>(null);
+
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        setFirebaseUserId(user.uid);
+      } else {
+        const result = await signInAnonymously(auth);
+        setFirebaseUserId(result.user.uid);
+      }
+    });
   
+    return () => unsubscribe();
+  }, []);
+  
+  if (!firebaseUserId) return null; // 로그인 안 됐으면 렌더링 X
+
+const userId = firebaseUserId;
+
   const [nickname, setNicknameState] = useState<string>(localStorage.getItem('nickname') || '');
   const [matchStatus, setMatchStatus] = useState<'idle' | 'searching' | 'found' | 'chatting'>('idle');
   const [currentMatch, setCurrentMatch] = useState<Match | null>(null);
