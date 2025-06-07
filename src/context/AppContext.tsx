@@ -30,7 +30,14 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [firebaseUserId, setFirebaseUserId] = useState<string | null>(null);
+  const [nickname, setNicknameState] = useState<string>(localStorage.getItem('nickname') || '');
+  const [matchStatus, setMatchStatus] = useState<'idle' | 'searching' | 'found' | 'chatting'>('idle');
+  const [currentMatch, setCurrentMatch] = useState<Match | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [rejectedUserIds, setRejectedUserIds] = useState<string[]>([]);
+  const rejectedUserIdsRef = useRef<string[]>([]);
 
+  const userId = firebaseUserId!; // 👈 useState 이후에 할당
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -41,20 +48,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setFirebaseUserId(result.user.uid);
       }
     });
-  
     return () => unsubscribe();
   }, []);
-  
-  if (!firebaseUserId) return null; // 로그인 안 됐으면 렌더링 X
 
-const userId = firebaseUserId;
+  if (!firebaseUserId) return null; // 👈 이건 Hooks 선언 이후에 위치시켜야 안전
 
-  const [nickname, setNicknameState] = useState<string>(localStorage.getItem('nickname') || '');
-  const [matchStatus, setMatchStatus] = useState<'idle' | 'searching' | 'found' | 'chatting'>('idle');
-  const [currentMatch, setCurrentMatch] = useState<Match | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [rejectedUserIds, setRejectedUserIds] = useState<string[]>([]);
-  const rejectedUserIdsRef = useRef<string[]>([]);
+
 
   useEffect(() => {
     rejectedUserIdsRef.current = rejectedUserIds;
