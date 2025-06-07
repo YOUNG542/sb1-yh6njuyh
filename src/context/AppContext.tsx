@@ -21,7 +21,7 @@ interface AppContextType {
   leaveChat: () => Promise<void>;
   reportUser: (reason: string) => Promise<void>;
   rejectMatch: () => Promise<void>;
-  rejectedUserIds: string[];
+  rejectedUserIds: Record<string, number>;
   addRejectedUser: (id: string) => void; 
   forceEndMatch: () => Promise<void>;
 }
@@ -35,8 +35,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [matchStatus, setMatchStatus] = useState<'idle' | 'searching' | 'found' | 'chatting'>('idle');
   const [currentMatch, setCurrentMatch] = useState<Match | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [rejectedUserIds, setRejectedUserIds] = useState<string[]>([]);
-  const rejectedUserIdsRef = useRef<string[]>([]);
+  const [rejectedUserIds, setRejectedUserIds] = useState<Record<string, number>>({});
+  const rejectedUserIdsRef = useRef<Record<string, number>>({});
+  
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -58,8 +59,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
 
   const addRejectedUser = (userId: string) => {
-    setRejectedUserIds((prev) => [...prev, userId]);
+    setRejectedUserIds((prev) => ({
+      ...prev,
+      [userId]: Date.now()
+    }));
   };
+  
   
   // Set nickname and store in localStorage
   const setNickname = (name: string) => {
@@ -152,9 +157,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const requestList = Object.values<MatchRequest>(requests);
     
       // ✅ 거절한 유저 제외
-      const filteredRequests = requestList.filter(
-        req => !rejectedUserIdsRef.current.includes(req.userId)
-      );
+      const filteredRequests = requestList.filter(req => {
+        if (req.userId === userId) return false;
+      
+        const rejectedAt = rejectedUserIdsRef.current[req.userId];
+        if (rejectedAt && Date.now() - rejectedAt < 60000) {
+          return false;
+        }
+      
+        return true;
+      });
+      
       
       if (filteredRequests.length < 2) return;
     
