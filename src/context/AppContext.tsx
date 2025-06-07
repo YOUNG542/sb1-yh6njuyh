@@ -51,11 +51,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => unsubscribe();
   }, []);
 
-  if (!isAuthReady || !firebaseUserId) return <div>Loading...</div>;
 
-  const userId = firebaseUserId;
-
-  useEffect(() => {
+   useEffect(() => {
     rejectedUserIdsRef.current = rejectedUserIds;
   }, [rejectedUserIds]);
 
@@ -69,6 +66,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setNicknameState(name);
     localStorage.setItem('nickname', name);
   };
+
+  const userId = firebaseUserId || '';
+
+  
 
   // Set up user online status
   useEffect(() => {
@@ -418,12 +419,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         forceEndMatch,
       }}
     >
-      {children}
+      {isAuthReady ? children : null}
     </AppContext.Provider>
   );
 };
-
-
 
 export const useApp = () => {
   const context = useContext(AppContext);
