@@ -156,17 +156,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     
       const requestList = Object.values<MatchRequest>(requests);
     
+    // ✅ 여기서 Firebase에서 거절 목록 불러오기
+        const rejectionsSnap = await get(ref(database, 'rejections'));
+        const allRejections = rejectionsSnap.exists() ? rejectionsSnap.val() : {};
+
+
       // ✅ 거절한 유저 제외
       const filteredRequests = requestList.filter(req => {
         if (req.userId === userId) return false;
       
-        const rejectedAt = rejectedUserIdsRef.current[req.userId];
-        if (rejectedAt && Date.now() - rejectedAt < 60000) {
+        const now = Date.now();
+      
+        const rejectedByMe = allRejections[userId]?.[req.userId];
+        const rejectedByThem = allRejections[req.userId]?.[userId];
+      
+        if ((rejectedByMe && now - rejectedByMe < 60000) ||
+            (rejectedByThem && now - rejectedByThem < 60000)) {
           return false;
         }
       
         return true;
       });
+      
       
       
       if (filteredRequests.length < 2) return;
@@ -390,9 +401,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const otherUserId = currentMatch.users.find(id => id !== userId);
     
     if (otherUserId) {
-      addRejectedUser(otherUserId); // 먼저 상태 업데이트 요청
-      await new Promise((resolve) => setTimeout(resolve, 100)); // 상태 반영 기다림
+      const now = Date.now();
+      // 양방향 거절 반영
+      await set(ref(database, `rejections/${userId}/${otherUserId}`), now);
+      await set(ref(database, `rejections/${otherUserId}/${userId}`), now);
     }
+    
   
     // 매칭 종료
     const matchRef = ref(database, `matches/${currentMatch.id}`);
