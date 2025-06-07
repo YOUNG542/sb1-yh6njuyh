@@ -399,14 +399,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!currentMatch) return;
   
     const otherUserId = currentMatch.users.find(id => id !== userId);
-    
+  
     if (otherUserId) {
       const now = Date.now();
-      // 양방향 거절 반영
+  
+      // ✅ 나 → 상대방만 기록 (상대 경로는 쓰면 안 됨)
       await set(ref(database, `rejections/${userId}/${otherUserId}`), now);
-      await set(ref(database, `rejections/${otherUserId}/${userId}`), now);
     }
-    
   
     // 매칭 종료
     const matchRef = ref(database, `matches/${currentMatch.id}`);
@@ -415,12 +414,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: 'ended'
     });
   
+    // 상태 초기화
     setCurrentMatch(null);
     setMatchStatus('idle');
     setMessages([]);
   
-    await enterMatchmaking(); // 🔥 상태 반영 이후 매칭 시작
+    // 🔥 상태 반영 이후 매칭 재시작
+    await enterMatchmaking();
   };
+  
   
   
   
