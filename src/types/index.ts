@@ -4,6 +4,7 @@ export interface User {
   createdAt: number;
   lastActive: number;
   status: 'online' | 'matching' | 'chatting' | 'offline';
+  matchingLocked?: boolean;
 }
 
 export interface MatchRequest {
@@ -11,6 +12,9 @@ export interface MatchRequest {
   userId: string;
   nickname: string;
   createdAt: number;
+  matched?: boolean;
+  matchedAt?: any; // Firebase serverTimestamp
+  lastActive?: number;
 }
 
 export interface Match {
@@ -20,6 +24,8 @@ export interface Match {
   createdAt: number;
   acceptedBy: string[];
   status: 'pending' | 'active' | 'ended';
+  rejectedBy?: string;
+  endedAt?: number;
 }
 
 export interface Message {

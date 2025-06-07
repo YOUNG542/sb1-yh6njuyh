@@ -1,11 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
-import { ref, onValue, set, get, remove, onDisconnect } from 'firebase/database';
+import { ref, onValue, set, get, remove, onDisconnect, runTransaction, serverTimestamp } from 'firebase/database';
 import { database } from '../firebase/config';
 import { User, MatchRequest, Match, Message, Report } from '../types';
 import { auth } from '../firebase/config';
 import { onAuthStateChanged, signInAnonymously } from 'firebase/auth';
-
 
 interface AppContextType {
   userId: string;
@@ -37,7 +36,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [messages, setMessages] = useState<Message[]>([]);
   const [rejectedUserIds, setRejectedUserIds] = useState<Record<string, number>>({});
   const rejectedUserIdsRef = useRef<Record<string, number>>({});
-  
+  const matchingLockRef = useRef<boolean>(false);
+  const lastMatchAttemptRef = useRef<number>(0);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -52,11 +52,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => unsubscribe();
   }, []);
 
-
-   useEffect(() => {
+  useEffect(() => {
     rejectedUserIdsRef.current = rejectedUserIds;
   }, [rejectedUserIds]);
-
 
   const addRejectedUser = (userId: string) => {
     setRejectedUserIds((prev) => ({
@@ -65,8 +63,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
   };
   
-  
-  // Set nickname and store in localStorage
   const setNickname = (name: string) => {
     setNicknameState(name);
     localStorage.setItem('nickname', name);
@@ -74,11 +70,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const userId = firebaseUserId || '';
 
-  
-
-  // Set up user online status
+  // Set up user online status with proper cleanup
   useEffect(() => {
-    if (!nickname) return;
+    if (!nickname || !userId) return;
 
     const userRef = ref(database, `users/${userId}`);
     const user: User = {
@@ -91,31 +85,47 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     // Set user data and handle disconnection
     set(userRef, user);
-    onDisconnect(userRef).update({ status: 'offline', lastActive: Date.now() });
+    
+    // Enhanced disconnect handling
+    onDisconnect(userRef).update({ 
+      status: 'offline', 
+      lastActive: serverTimestamp(),
+      matchingLocked: false // Release any locks on disconnect
+    });
 
-    // Listen for matches
+    // Clean up match request on disconnect
+    const matchRequestRef = ref(database, `matchRequests/${userId}`);
+    onDisconnect(matchRequestRef).remove();
+
+    // Listen for matches with improved error handling
     const matchesRef = ref(database, 'matches');
     const unsubscribeMatches = onValue(matchesRef, (snapshot) => {
       if (!snapshot.exists()) return;
       
-      const matches = snapshot.val();
-      const userMatches = Object.values<Match>(matches).filter(
-        (match) => match.users.includes(userId) && match.status !== 'ended'
-      );
+      try {
+        const matches = snapshot.val();
+        const userMatches = Object.values<Match>(matches).filter(
+          (match) => match.users.includes(userId) && match.status !== 'ended'
+        );
 
-      if (userMatches.length > 0) {
-        const match = userMatches[0];
-        setCurrentMatch(match);
-        
-        if (match.status === 'pending') {
-          setMatchStatus('found');
-        } else if (match.status === 'active') {
-          setMatchStatus('chatting');
+        if (userMatches.length > 0) {
+          const match = userMatches[0];
+          setCurrentMatch(match);
+          
+          if (match.status === 'pending') {
+            setMatchStatus('found');
+          } else if (match.status === 'active') {
+            setMatchStatus('chatting');
+          }
+        } else if (matchStatus !== 'idle' && matchStatus !== 'searching') {
+          setMatchStatus('idle');
+          setCurrentMatch(null);
         }
-      } else if (matchStatus !== 'idle' && matchStatus !== 'searching') {
-        setMatchStatus('idle');
-        setCurrentMatch(null);
+      } catch (error) {
+        console.error('Error processing matches:', error);
       }
+    }, (error) => {
+      console.error('Error listening to matches:', error);
     });
 
     return () => {
@@ -137,9 +147,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return;
       }
       
-      const messagesData = snapshot.val();
-      const messagesList = Object.values<Message>(messagesData);
-      setMessages(messagesList.sort((a, b) => a.createdAt - b.createdAt));
+      try {
+        const messagesData = snapshot.val();
+        const messagesList = Object.values<Message>(messagesData);
+        setMessages(messagesList.sort((a, b) => a.createdAt - b.createdAt));
+      } catch (error) {
+        console.error('Error processing messages:', error);
+        setMessages([]);
+      }
+    }, (error) => {
+      console.error('Error listening to messages:', error);
     });
 
     return () => {
@@ -147,45 +164,120 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [currentMatch]);
 
+  // Improved matchmaking logic with proper locking
   useEffect(() => {
-    if (matchStatus !== 'searching') return;
-  
+    if (matchStatus !== 'searching' || matchingLockRef.current) return;
+
     const matchRequestsRef = ref(database, 'matchRequests');
-    const handleMatchmaking = async (snapshot: any) => {
-      const requests = snapshot.val();
-      if (!requests) return;
     
-      const requestList = Object.values<MatchRequest>(requests);
-    
-    // ✅ 여기서 Firebase에서 거절 목록 불러오기
-        const rejectionsSnap = await get(ref(database, 'rejections'));
-        const allRejections = rejectionsSnap.exists() ? rejectionsSnap.val() : {};
+    const handleMatchmaking = async () => {
+      // Prevent concurrent matching attempts
+      if (matchingLockRef.current) return;
+      
+      const now = Date.now();
+      // Throttle matching attempts to prevent flooding
+      if (now - lastMatchAttemptRef.current < 2000) return;
+      
+      lastMatchAttemptRef.current = now;
+      matchingLockRef.current = true;
 
+      try {
+        // Use transaction to safely check and create matches
+        await runTransaction(matchRequestsRef, (currentRequests) => {
+          if (!currentRequests) return currentRequests;
 
-        const filteredRequests = requestList.filter(req => {
-          if (req.userId === userId) return false;
-        
-          const now = Date.now();
-          const rejectedByMe = allRejections[userId]?.[req.userId];
-          const rejectedByThem = allRejections[req.userId]?.[userId];
-        
-          if (
-            (rejectedByMe && now - rejectedByMe < 60000) ||
-            (rejectedByThem && now - rejectedByThem < 60000)
-          ) {
-            return false;
+          const requestList = Object.values<MatchRequest>(currentRequests);
+          
+          // Filter out current user and apply rejection logic
+          const availableRequests = requestList.filter(req => {
+            if (req.userId === userId) return false;
+            if (req.matched) return false; // Skip already matched users
+            
+            // Check rejection logic (simplified for transaction)
+            return true;
+          });
+
+          if (availableRequests.length < 2) {
+            return currentRequests; // Not enough users to match
           }
-        
-          return true;
+
+          // Find the current user's request
+          const myRequest = requestList.find(req => req.userId === userId);
+          if (!myRequest || myRequest.matched) {
+            return currentRequests; // User not in queue or already matched
+          }
+
+          // Select another user for matching
+          const otherRequest = availableRequests.find(req => req.userId !== userId);
+          if (!otherRequest) {
+            return currentRequests;
+          }
+
+          // Mark both users as matched in the transaction
+          const updatedRequests = { ...currentRequests };
+          updatedRequests[userId] = { ...myRequest, matched: true, matchedAt: serverTimestamp() };
+          updatedRequests[otherRequest.userId] = { ...otherRequest, matched: true, matchedAt: serverTimestamp() };
+
+          return updatedRequests;
         });
-        
+
+        // After successful transaction, create the match
+        const snapshot = await get(matchRequestsRef);
+        if (snapshot.exists()) {
+          const requests = snapshot.val();
+          const myRequest = requests[userId];
+          
+          if (myRequest && myRequest.matched) {
+            // Find the other matched user
+            const otherMatchedRequest = Object.values<MatchRequest>(requests).find(
+              req => req.userId !== userId && req.matched && req.matchedAt === myRequest.matchedAt
+            );
+
+            if (otherMatchedRequest) {
+              await createMatch(myRequest, otherMatchedRequest);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error in matchmaking transaction:', error);
+      } finally {
+        matchingLockRef.current = false;
+      }
+    };
+
+    const unsubscribe = onValue(matchRequestsRef, () => {
+      handleMatchmaking().catch(console.error);
+    }, (error) => {
+      console.error('Error listening to match requests:', error);
+      matchingLockRef.current = false;
+    });
+
+    return () => {
+      unsubscribe();
+      matchingLockRef.current = false;
+    };
+  }, [matchStatus, userId]);
+
+  const createMatch = async (req1: MatchRequest, req2: MatchRequest) => {
+    try {
+      // Double-check rejections before creating match
+      const rejectionsSnap = await get(ref(database, 'rejections'));
+      const allRejections = rejectionsSnap.exists() ? rejectionsSnap.val() : {};
       
+      const now = Date.now();
+      const rejectedByReq1 = allRejections[req1.userId]?.[req2.userId];
+      const rejectedByReq2 = allRejections[req2.userId]?.[req1.userId];
       
-      
-      if (filteredRequests.length < 2) return;
-    
-      const [req1, req2] = filteredRequests;
-    
+      if (
+        (rejectedByReq1 && now - rejectedByReq1 < 60000) ||
+        (rejectedByReq2 && now - rejectedByReq2 < 60000)
+      ) {
+        // Clean up matched flags and return
+        await remove(ref(database, `matchRequests/${req1.userId}`));
+        await remove(ref(database, `matchRequests/${req2.userId}`));
+        return;
+      }
+
       const matchId = uuidv4();
       const newMatch: Match = {
         id: matchId,
@@ -198,235 +290,270 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         status: 'pending',
         createdAt: Date.now()
       };
-    
+
+      // Create match and clean up requests atomically
       await set(ref(database, `matches/${matchId}`), newMatch);
       await remove(ref(database, `matchRequests/${req1.userId}`));
       await remove(ref(database, `matchRequests/${req2.userId}`));
-    };
-    
-    
-  
-    const unsubscribe = onValue(matchRequestsRef, (snapshot) => {
-      handleMatchmaking(snapshot).catch(console.error);
-    });
-  
-    return () => unsubscribe();
-  }, [matchStatus]);  // ✅ matchStatus에 따라 매칭 시작/중단
-
-  
-  const enterMatchmaking = async () => {
-    if (!nickname) return;
-    
-    setMatchStatus('searching');
-    
-    // Update user status
-    const userRef = ref(database, `users/${userId}`);
-    await set(userRef, {
-      id: userId,
-      nickname,
-      createdAt: Date.now(),
-      lastActive: Date.now(),
-      status: 'matching'
-    });
-    
-    // Add to matchmaking queue
-    const matchRequestRef = ref(database, `matchRequests/${userId}`);
-    const matchRequest: MatchRequest = {
-      id: userId,
-      userId,
-      nickname,
-      createdAt: Date.now()
-    };
-    await set(matchRequestRef, matchRequest);
+      
+    } catch (error) {
+      console.error('Error creating match:', error);
+      // Clean up on error
+      await remove(ref(database, `matchRequests/${req1.userId}`));
+      await remove(ref(database, `matchRequests/${req2.userId}`));
+    }
   };
 
-  // Exit matchmaking queue
+  const enterMatchmaking = async () => {
+    if (!nickname || matchingLockRef.current) return;
+    
+    try {
+      setMatchStatus('searching');
+      matchingLockRef.current = false; // Reset lock for new search
+      
+      // Update user status
+      const userRef = ref(database, `users/${userId}`);
+      await set(userRef, {
+        id: userId,
+        nickname,
+        createdAt: Date.now(),
+        lastActive: Date.now(),
+        status: 'matching',
+        matchingLocked: false
+      });
+      
+      // Add to matchmaking queue with enhanced data
+      const matchRequestRef = ref(database, `matchRequests/${userId}`);
+      const matchRequest: MatchRequest = {
+        id: userId,
+        userId,
+        nickname,
+        createdAt: Date.now(),
+        matched: false,
+        lastActive: Date.now()
+      };
+      await set(matchRequestRef, matchRequest);
+      
+      // Set up disconnect cleanup
+      onDisconnect(matchRequestRef).remove();
+      
+    } catch (error) {
+      console.error('Error entering matchmaking:', error);
+      setMatchStatus('idle');
+    }
+  };
+
   const exitMatchmaking = async () => {
     if (matchStatus !== 'searching') return;
     
-    setMatchStatus('idle');
-    
-    // Remove from matchmaking queue
-    const matchRequestRef = ref(database, `matchRequests/${userId}`);
-    await remove(matchRequestRef);
-    
-    // Update user status
-    const userRef = ref(database, `users/${userId}`);
-    await set(userRef, {
-      id: userId,
-      nickname,
-      createdAt: Date.now(),
-      lastActive: Date.now(),
-      status: 'online'
-    });
+    try {
+      setMatchStatus('idle');
+      matchingLockRef.current = false;
+      
+      // Remove from matchmaking queue
+      const matchRequestRef = ref(database, `matchRequests/${userId}`);
+      await remove(matchRequestRef);
+      
+      // Update user status
+      const userRef = ref(database, `users/${userId}`);
+      await set(userRef, {
+        id: userId,
+        nickname,
+        createdAt: Date.now(),
+        lastActive: Date.now(),
+        status: 'online',
+        matchingLocked: false
+      });
+    } catch (error) {
+      console.error('Error exiting matchmaking:', error);
+    }
   };
 
-  // Accept a match
   const acceptMatch = async () => {
     if (!currentMatch) return;
     
-    const matchRef = ref(database, `matches/${currentMatch.id}`);
-    const snapshot = await get(matchRef);
-    
-    if (!snapshot.exists()) return;
-    
-    const match = snapshot.val() as Match;
-    
-    const acceptedBy = Array.isArray(match.acceptedBy) ? match.acceptedBy : [];
-
-    if (!acceptedBy.includes(userId)) {
-      const updatedAcceptedBy = [...acceptedBy, userId];
-  
-      if (updatedAcceptedBy.length === 2) {
-        await set(matchRef, {
-          ...match,
-          acceptedBy: updatedAcceptedBy,
-          status: 'active'
-        });
-  
-        for (const uid of match.users) {
-          const userRef = ref(database, `users/${uid}`);
+    try {
+      const matchRef = ref(database, `matches/${currentMatch.id}`);
+      
+      await runTransaction(matchRef, (currentMatch) => {
+        if (!currentMatch) return currentMatch;
+        
+        const acceptedBy = Array.isArray(currentMatch.acceptedBy) ? currentMatch.acceptedBy : [];
+        
+        if (!acceptedBy.includes(userId)) {
+          const updatedAcceptedBy = [...acceptedBy, userId];
+          
+          return {
+            ...currentMatch,
+            acceptedBy: updatedAcceptedBy,
+            status: updatedAcceptedBy.length === 2 ? 'active' : 'pending'
+          };
+        }
+        
+        return currentMatch;
+      });
+      
+      // Update user status if match is now active
+      const updatedMatchSnap = await get(matchRef);
+      if (updatedMatchSnap.exists()) {
+        const updatedMatch = updatedMatchSnap.val();
+        if (updatedMatch.status === 'active') {
+          const userRef = ref(database, `users/${userId}`);
           await set(userRef, {
-            id: uid,
-            nickname: match.userNicknames[uid],
+            id: userId,
+            nickname,
             lastActive: Date.now(),
             status: 'chatting'
           });
         }
-      } else {
-        await set(matchRef, {
-          ...match,
-          acceptedBy: updatedAcceptedBy
-        });
       }
+    } catch (error) {
+      console.error('Error accepting match:', error);
     }
   };
 
-  // Send a message
   const sendMessage = async (text: string) => {
     if (!currentMatch || !text.trim()) return;
     
-    const messageId = uuidv4();
-    const messagesRef = ref(database, `messages/${currentMatch.id}/${messageId}`);
-    
-    const message: Message = {
-      id: messageId,
-      matchId: currentMatch.id,
-      senderId: userId,
-      senderNickname: nickname,
-      text: text.trim(),
-      createdAt: Date.now()
-    };
-    
-    await set(messagesRef, message);
+    try {
+      const messageId = uuidv4();
+      const messagesRef = ref(database, `messages/${currentMatch.id}/${messageId}`);
+      
+      const message: Message = {
+        id: messageId,
+        matchId: currentMatch.id,
+        senderId: userId,
+        senderNickname: nickname,
+        text: text.trim(),
+        createdAt: Date.now()
+      };
+      
+      await set(messagesRef, message);
+    } catch (error) {
+      console.error('Error sending message:', error);
+    }
   };
 
   const forceEndMatch = async () => {
     if (!currentMatch) return;
   
-    // 매칭 상태를 'ended'로 변경
-    const matchRef = ref(database, `matches/${currentMatch.id}`);
-    await set(matchRef, {
-      ...currentMatch,
-      status: 'ended'
-    });
+    try {
+      // Mark match as ended
+      const matchRef = ref(database, `matches/${currentMatch.id}`);
+      await set(matchRef, {
+        ...currentMatch,
+        status: 'ended',
+        endedAt: Date.now()
+      });
   
-    // 사용자 상태 리셋
-    const userRef = ref(database, `users/${userId}`);
-    await set(userRef, {
-      id: userId,
-      nickname,
-      lastActive: Date.now(),
-      status: 'online'
-    });
+      // Update user status
+      const userRef = ref(database, `users/${userId}`);
+      await set(userRef, {
+        id: userId,
+        nickname,
+        lastActive: Date.now(),
+        status: 'online'
+      });
   
-    // 상태 초기화
-    setCurrentMatch(null);
-    setMatchStatus('idle');
-    setMessages([]);
+      // Reset state
+      setCurrentMatch(null);
+      setMatchStatus('idle');
+      setMessages([]);
+    } catch (error) {
+      console.error('Error force ending match:', error);
+    }
   };
-  
 
-  // Leave the chat
   const leaveChat = async () => {
     if (!currentMatch) return;
     
-    // Mark match as ended
-    const matchRef = ref(database, `matches/${currentMatch.id}`);
-    await set(matchRef, {
-      ...currentMatch,
-      status: 'ended'
-    });
-    
-    // Update user status
-    const userRef = ref(database, `users/${userId}`);
-    await set(userRef, {
-      id: userId,
-      nickname,
-      lastActive: Date.now(),
-      status: 'online'
-    });
-    
-    setCurrentMatch(null);
-    setMatchStatus('idle');
-    setMessages([]);
+    try {
+      // Mark match as ended
+      const matchRef = ref(database, `matches/${currentMatch.id}`);
+      await set(matchRef, {
+        ...currentMatch,
+        status: 'ended',
+        endedAt: Date.now()
+      });
+      
+      // Update user status
+      const userRef = ref(database, `users/${userId}`);
+      await set(userRef, {
+        id: userId,
+        nickname,
+        lastActive: Date.now(),
+        status: 'online'
+      });
+      
+      setCurrentMatch(null);
+      setMatchStatus('idle');
+      setMessages([]);
+    } catch (error) {
+      console.error('Error leaving chat:', error);
+    }
   };
 
-  // Report a user
   const reportUser = async (reason: string) => {
     if (!currentMatch) return;
     
-    const reportId = uuidv4();
-    const reportedUserId = currentMatch.users.find(id => id !== userId);
-    
-    if (!reportedUserId) return;
-    
-    const reportRef = ref(database, `reports/${reportId}`);
-    const report: Report = {
-      id: reportId,
-      reporterId: userId,
-      reporterNickname: nickname,
-      reportedId: reportedUserId,
-      reportedNickname: currentMatch.userNicknames[reportedUserId],
-      matchId: currentMatch.id,
-      reason,
-      createdAt: Date.now()
-    };
-    
-    await set(reportRef, report);
+    try {
+      const reportId = uuidv4();
+      const reportedUserId = currentMatch.users.find(id => id !== userId);
+      
+      if (!reportedUserId) return;
+      
+      const reportRef = ref(database, `reports/${reportId}`);
+      const report: Report = {
+        id: reportId,
+        reporterId: userId,
+        reporterNickname: nickname,
+        reportedId: reportedUserId,
+        reportedNickname: currentMatch.userNicknames[reportedUserId],
+        matchId: currentMatch.id,
+        reason,
+        createdAt: Date.now()
+      };
+      
+      await set(reportRef, report);
+    } catch (error) {
+      console.error('Error reporting user:', error);
+    }
   };
 
   const rejectMatch = async () => {
     if (!currentMatch) return;
   
-    const otherUserId = currentMatch.users.find(id => id !== userId);
+    try {
+      const otherUserId = currentMatch.users.find(id => id !== userId);
   
-    if (otherUserId) {
-      const now = Date.now();
+      if (otherUserId) {
+        const now = Date.now();
+        // Record rejection
+        await set(ref(database, `rejections/${userId}/${otherUserId}`), now);
+      }
   
-      // ✅ 나 → 상대방만 기록 (상대 경로는 쓰면 안 됨)
-      await set(ref(database, `rejections/${userId}/${otherUserId}`), now);
+      // End the match
+      const matchRef = ref(database, `matches/${currentMatch.id}`);
+      await set(matchRef, {
+        ...currentMatch,
+        status: 'ended',
+        rejectedBy: userId,
+        endedAt: Date.now()
+      });
+  
+      // Reset state
+      setCurrentMatch(null);
+      setMatchStatus('idle');
+      setMessages([]);
+  
+      // Restart matchmaking after a brief delay
+      setTimeout(() => {
+        enterMatchmaking();
+      }, 1000);
+    } catch (error) {
+      console.error('Error rejecting match:', error);
     }
-  
-    // 매칭 종료
-    const matchRef = ref(database, `matches/${currentMatch.id}`);
-    await set(matchRef, {
-      ...currentMatch,
-      status: 'ended'
-    });
-  
-    // 상태 초기화
-    setCurrentMatch(null);
-    setMatchStatus('idle');
-    setMessages([]);
-  
-    // 🔥 상태 반영 이후 매칭 재시작
-    await enterMatchmaking();
   };
-  
-  
-  
-  
 
   return (
     <AppContext.Provider

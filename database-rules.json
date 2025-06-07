@@ -1,0 +1,106 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    
+    "users": {
+      "$userId": {
+        ".read": "auth != null && auth.uid == $userId",
+        ".write": "auth != null && auth.uid == $userId",
+        ".validate": "newData.hasChildren(['id', 'nickname', 'lastActive', 'status'])",
+        "id": {
+          ".validate": "newData.val() == $userId"
+        },
+        "nickname": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 15"
+        },
+        "status": {
+          ".validate": "newData.val() == 'online' || newData.val() == 'matching' || newData.val() == 'chatting' || newData.val() == 'offline'"
+        },
+        "lastActive": {
+          ".validate": "newData.isNumber()"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber()"
+        },
+        "matchingLocked": {
+          ".validate": "newData.isBoolean()"
+        }
+      }
+    },
+    
+    "matchRequests": {
+      ".read": "auth != null",
+      "$userId": {
+        ".write": "auth != null && (auth.uid == $userId || !data.exists())",
+        ".validate": "newData.hasChildren(['id', 'userId', 'nickname', 'createdAt'])",
+        "id": {
+          ".validate": "newData.val() == $userId"
+        },
+        "userId": {
+          ".validate": "newData.val() == $userId"
+        },
+        "nickname": {
+          ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 15"
+        },
+        "createdAt": {
+          ".validate": "newData.isNumber()"
+        },
+        "matched": {
+          ".validate": "newData.isBoolean()"
+        },
+        "matchedAt": {
+          ".validate": "true"
+        },
+        "lastActive": {
+          ".validate": "newData.isNumber()"
+        }
+      }
+    },
+    
+    "matches": {
+      ".read": "auth != null",
+      "$matchId": {
+        ".write": "auth != null && (data.child('users').val().indexOf(auth.uid) >= 0 || !data.exists())",
+        ".validate": "newData.hasChildren(['id', 'users', 'userNicknames', 'createdAt', 'acceptedBy', 'status'])",
+        "users": {
+          ".validate": "newData.val().length == 2"
+        },
+        "status": {
+          ".validate": "newData.val() == 'pending' || newData.val() == 'active' || newData.val() == 'ended'"
+        },
+        "acceptedBy": {
+          ".validate": "newData.val().length <= 2"
+        }
+      }
+    },
+    
+    "messages": {
+      "$matchId": {
+        ".read": "auth != null && root.child('matches').child($matchId).child('users').val().indexOf(auth.uid) >= 0",
+        "$messageId": {
+          ".write": "auth != null && root.child('matches').child($matchId).child('users').val().indexOf(auth.uid) >= 0 && root.child('matches').child($matchId).child('status').val() == 'active'",
+          ".validate": "newData.hasChildren(['id', 'matchId', 'senderId', 'senderNickname', 'text', 'createdAt']) && newData.child('senderId').val() == auth.uid && newData.child('matchId').val() == $matchId"
+        }
+      }
+    },
+    
+    "rejections": {
+      "$userId": {
+        ".read": "auth != null && auth.uid == $userId",
+        ".write": "auth != null && auth.uid == $userId",
+        "$rejectedUserId": {
+          ".validate": "newData.isNumber()"
+        }
+      }
+    },
+    
+    "reports": {
+      ".read": false,
+      "$reportId": {
+        ".write": "auth != null && newData.child('reporterId').val() == auth.uid",
+        ".validate": "newData.hasChildren(['id', 'reporterId', 'reporterNickname', 'reportedId', 'reportedNickname', 'matchId', 'reason', 'createdAt'])"
+      }
+    }
+  }
+}
