@@ -148,8 +148,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [currentMatch]);
 
   useEffect(() => {
-    const matchRequestsRef = ref(database, 'matchRequests');
+    if (matchStatus !== 'searching') return;
   
+    const matchRequestsRef = ref(database, 'matchRequests');
     const handleMatchmaking = async (snapshot: any) => {
       const requests = snapshot.val();
       if (!requests) return;
@@ -206,14 +207,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     
   
     const unsubscribe = onValue(matchRequestsRef, (snapshot) => {
-      // ✅ 비동기 로직은 따로 호출
       handleMatchmaking(snapshot).catch(console.error);
     });
   
     return () => unsubscribe();
-  }, []);
+  }, [matchStatus]);  // ✅ matchStatus에 따라 매칭 시작/중단
+
   
-  // Enter matchmaking queue
   const enterMatchmaking = async () => {
     if (!nickname) return;
     
