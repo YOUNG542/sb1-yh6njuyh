@@ -78,22 +78,16 @@ function App() {
     return <MatchingScreen />;
   };
 
-  // 인앱 브라우저 차단 화면
+  // 인앱 브라우저 차단 화면 (방법 1 - 버튼 제거)
   if (blockInAppBrowser) {
     return (
       <div className="fixed inset-0 bg-white flex flex-col items-center justify-center text-center p-6 z-50">
-        <h1 className="text-lg font-semibold mb-2">Safari에서 열어주세요</h1>
-        <p className="text-sm mb-4">
+        <h1 className="text-lg font-semibold mb-3">Safari에서 열어주세요</h1>
+        <p className="text-sm leading-relaxed text-gray-700">
           이 앱은 아이폰 Safari에서만 작동합니다. <br />
-          오른쪽 위 […] 또는 하단 ⬆️ 버튼을 눌러 <br />
-          <strong>"Safari로 열기"</strong>를 선택해주세요.
+          오른쪽 위의 <strong>[ ⋮ ]</strong> 또는 하단의 <strong>[ ⬆️ ]</strong> 버튼을 눌러<br />
+          <strong>“Safari에서 열기”</strong> 또는 <strong>“기타 브라우저로 열기”</strong>를 선택해주세요.
         </p>
-        <button
-          onClick={() => window.open(window.location.href, '_blank')}
-          className="bg-blue-600 text-white px-4 py-2 rounded shadow-md text-sm"
-        >
-          Safari로 열기
-        </button>
       </div>
     );
   }
