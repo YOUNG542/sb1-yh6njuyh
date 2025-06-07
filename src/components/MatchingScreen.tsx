@@ -54,23 +54,32 @@ export const MatchingScreen: React.FC = () => {
   };
 
   if (matchStatus === 'found' && currentMatch) {
-    const otherUserId = currentMatch.users.find(id => id !== useApp().userId);
+    const { userId, forceEndMatch } = useApp();
+    const otherUserId = currentMatch.users.find(id => id !== userId);
     const otherUserNickname = otherUserId ? currentMatch.userNicknames[otherUserId] : '';
-    const hasAccepted = Array.isArray(currentMatch.acceptedBy) && currentMatch.acceptedBy.includes(useApp().userId);
-
+    const hasAccepted = Array.isArray(currentMatch.acceptedBy) && currentMatch.acceptedBy.includes(userId);
+  
     return (
-      <div className="max-w-md mx-auto bg-white p-6 rounded-xl shadow-soft text-center">
+      <div className="relative max-w-md mx-auto bg-white p-6 rounded-xl shadow-soft text-center">
+        {/* 🔺 우측 상단 취소 버튼 */}
+        <button
+          onClick={forceEndMatch}
+          className="absolute top-4 right-4 text-sm text-gray-400 hover:text-red-500 transition"
+        >
+          취소하기
+        </button>
+  
         <div className="mb-6 flex justify-center">
           <div className="bg-red-100 p-4 rounded-full">
             <Heart className="h-12 w-12 text-primary-500" />
           </div>
         </div>
-
+  
         <h2 className="text-2xl font-bold text-gray-800 mb-3">매칭 성공!</h2>
         <p className="text-gray-600 mb-6">
           <span className="font-semibold">{otherUserNickname}</span> 님과 매칭되었습니다.
         </p>
-
+  
         {hasAccepted ? (
           <div className="mb-4">
             <div className="flex items-center justify-center space-x-2 text-primary-600">
@@ -86,13 +95,12 @@ export const MatchingScreen: React.FC = () => {
             <Button variant="outline" size="lg" fullWidth onClick={handleRejectMatch}>
               거절하기
             </Button>
-
           </div>
         )}
       </div>
     );
   }
-
+  
   return (
     <div className="max-w-md mx-auto bg-white p-6 rounded-xl shadow-soft">
       <div className="text-center mb-6">

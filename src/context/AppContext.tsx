@@ -20,6 +20,7 @@ interface AppContextType {
   rejectMatch: () => Promise<void>;
   rejectedUserIds: string[];
   addRejectedUser: (id: string) => void; 
+  forceEndMatch: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -280,6 +281,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     await set(messagesRef, message);
   };
 
+  const forceEndMatch = async () => {
+    if (!currentMatch) return;
+  
+    // 매칭 상태를 'ended'로 변경
+    const matchRef = ref(database, `matches/${currentMatch.id}`);
+    await set(matchRef, {
+      ...currentMatch,
+      status: 'ended'
+    });
+  
+    // 사용자 상태 리셋
+    const userRef = ref(database, `users/${userId}`);
+    await set(userRef, {
+      id: userId,
+      nickname,
+      lastActive: Date.now(),
+      status: 'online'
+    });
+  
+    // 상태 초기화
+    setCurrentMatch(null);
+    setMatchStatus('idle');
+    setMessages([]);
+  };
+  
+
   // Leave the chat
   const leaveChat = async () => {
     if (!currentMatch) return;
@@ -374,6 +401,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         rejectMatch,
         rejectedUserIds,
         addRejectedUser,
+        forceEndMatch,
       }}
     >
       {children}
