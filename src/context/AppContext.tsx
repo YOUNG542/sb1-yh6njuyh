@@ -30,6 +30,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [firebaseUserId, setFirebaseUserId] = useState<string | null>(null);
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const [nickname, setNicknameState] = useState<string>(localStorage.getItem('nickname') || '');
   const [matchStatus, setMatchStatus] = useState<'idle' | 'searching' | 'found' | 'chatting'>('idle');
   const [currentMatch, setCurrentMatch] = useState<Match | null>(null);
@@ -45,17 +46,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const result = await signInAnonymously(auth);
         setFirebaseUserId(result.user.uid);
       }
+      setIsAuthReady(true);
     });
     return () => unsubscribe();
   }, []);
 
-  // 🔒 firebaseUserId가 아직 준비되지 않았으면 렌더링 중지
-  if (!firebaseUserId) return <div>Loading...</div>;
+  if (!isAuthReady || !firebaseUserId) return <div>Loading...</div>;
 
-  const userId = firebaseUserId; // ✅ 이 시점부턴 null 아님 보장
-
-  // 이하 생략
-
+  const userId = firebaseUserId;
 
   useEffect(() => {
     rejectedUserIdsRef.current = rejectedUserIds;
