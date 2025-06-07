@@ -37,8 +37,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [rejectedUserIds, setRejectedUserIds] = useState<string[]>([]);
   const rejectedUserIdsRef = useRef<string[]>([]);
 
-  const userId = firebaseUserId!; // 👈 useState 이후에 할당
-
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -51,8 +49,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => unsubscribe();
   }, []);
 
-  if (!firebaseUserId) return null; // 👈 이건 Hooks 선언 이후에 위치시켜야 안전
+  // 🔒 firebaseUserId가 아직 준비되지 않았으면 렌더링 중지
+  if (!firebaseUserId) return <div>Loading...</div>;
 
+  const userId = firebaseUserId; // ✅ 이 시점부턴 null 아님 보장
+
+  // 이하 생략
 
 
   useEffect(() => {
